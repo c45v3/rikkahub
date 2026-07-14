@@ -1,0 +1,111 @@
+name: Build Feature APK
+
+on:
+  push:
+    branches:
+      - ci/feature-custom-chat-input-placeholder
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-feature-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: github.repository == 'c45v3/rikkahub'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out feature source
+        uses: actions/checkout@v4
+        with:
+          ref: refs/heads/feat/custom-chat-input-placeholder
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Record feature revision
+        id: source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+          run_install: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      - name: Install web UI dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Prepare debug Google Services configuration
+        run: |
+          cat > app/google-services.json <<'JSON'
+          {
+            "project_info": {
+              "project_number": "123456789012",
+              "project_id": "rikkahub-feature-build",
+              "storage_bucket": "rikkahub-feature-build.appspot.com"
+            },
+            "client": [
+              {
+                "client_info": {
+                  "mobilesdk_app_id": "1:123456789012:android:0000000000000000000000",
+                  "android_client_info": {
+                    "package_name": "me.rerere.rikkahub.debug"
+                  }
+                },
+                "oauth_client": [],
+                "api_key": [
+                  {
+                    "current_key": "feature-build-placeholder"
+                  }
+                ],
+                "services": {
+                  "appinvite_service": {
+                    "other_platform_oauth_client": []
+                  }
+                }
+              }
+            ],
+            "configuration_version": "1"
+          }
+          JSON
+
+      - name: Run focused placeholder tests
+        run: |
+          chmod +x gradlew
+          ./gradlew :app:testDebugUnitTest \
+            --tests me.rerere.rikkahub.data.model.AssistantInputPlaceholderTest \
+            --stacktrace
+
+      - name: Build feature debug APK
+        run: ./gradlew :app:assembleDebug --stacktrace
+
+      - name: Upload feature APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: rikkahub-custom-chat-input-placeholder-debug-${{ steps.source.outputs.sha }}
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
