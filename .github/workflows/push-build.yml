@@ -1,0 +1,130 @@
+name: Push Build
+
+on:
+  push:
+    branches:
+      - feature/provider-model-sync
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout (including submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: jetbrains
+          java-version: '21'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web-ui/pnpm-lock.yaml
+
+      - name: Install web-ui dependencies
+        working-directory: web-ui
+        run: pnpm install --frozen-lockfile
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Choose signing configuration
+        id: build_mode
+        env:
+          KEY_BASE64: ${{ secrets.KEY_BASE64 }}
+          SIGNING_CONFIG: ${{ secrets.SIGNING_CONFIG }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$KEY_BASE64" && -n "$SIGNING_CONFIG" && -n "$GOOGLE_SERVICES_JSON" ]]; then
+            printf '%s' "$KEY_BASE64" | base64 -d > app/app.key
+            printf '%s' "$SIGNING_CONFIG" > local.properties
+            printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json
+            echo "variant=Release" >> "$GITHUB_OUTPUT"
+            echo "Building signed Release APKs"
+          else
+            # A build-only Firebase configuration for .debug, NOT a production backend.
+            cat > app/google-services.json <<'EOF'
+          {
+            "project_info": {
+              "project_number": "123456789012",
+              "project_id": "rikkahub-ci-placeholder",
+              "storage_bucket": "rikkahub-ci-placeholder.appspot.com"
+            },
+            "client": [{
+              "client_info": {
+                "mobilesdk_app_id": "1:123456789012:android:0123456789abcdef",
+                "android_client_info": {"package_name": "me.rerere.rikkahub.debug"}
+              },
+              "api_key": [{"current_key": "ci-placeholder-not-a-real-api-key"}]
+            }],
+            "configuration_version": "1"
+          }
+          EOF
+            echo "variant=Debug" >> "$GITHUB_OUTPUT"
+            echo "::notice::Signing or Firebase secrets unavailable; compiling a debug-only APK."
+          fi
+
+      - name: Test model synchronization
+        run: |
+          chmod +x gradlew
+          ./gradlew :ai:testDebugUnitTest --stacktrace
+
+      - name: Assemble Android APK
+        env:
+          VARIANT: ${{ steps.build_mode.outputs.variant }}
+        run: ./gradlew "assemble${VARIANT}" --stacktrace
+
+      - name: Upload APKs
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RikkaHub-${{ steps.build_mode.outputs.variant }}-${{ github.run_number }}
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build reports on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-Reports-${{ github.run_number }}
+          path: |
+            **/build/reports/
+            **/build/test-results/
+          if-no-files-found: ignore
+          retention-days: 7

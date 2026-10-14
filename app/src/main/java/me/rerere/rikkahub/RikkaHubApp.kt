@@ -35,6 +35,9 @@ import me.rerere.rikkahub.di.repositoryModule
 import me.rerere.rikkahub.di.viewModelModule
 import me.rerere.rikkahub.data.files.FilesManager
 import me.rerere.rikkahub.data.datastore.SettingsStore
+import me.rerere.rikkahub.data.provider.syncModelsOnAppForeground
+import me.rerere.ai.provider.ProviderManager
+import kotlinx.coroutines.Job
 import me.rerere.rikkahub.data.sync.BackupManager
 import me.rerere.rikkahub.data.sync.RestoreFailedException
 import me.rerere.rikkahub.utils.JsonInstant
@@ -111,11 +114,33 @@ class RikkaHubApp : Application() {
         // Resume media generations interrupted by the last process death
         resumeMediaCreations()
         resumeMemoryConsolidation()
+        registerForegroundModelSync()
 
         // Increment launch count
         incrementLaunchCount()
 
         // Composer.setDiagnosticStackTraceMode(ComposeStackTraceMode.Auto)
+    }
+
+    private var foregroundModelSyncJob: Job? = null
+
+    private fun registerForegroundModelSync() {
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_START && foregroundModelSyncJob?.isActive != true) {
+                    foregroundModelSyncJob = get<AppScope>().launch(Dispatchers.IO) {
+                        runCatching {
+                            syncModelsOnAppForeground(
+                                settingsStore = get<SettingsStore>(),
+                                providerManager = get<ProviderManager>(),
+                            )
+                        }.onFailure {
+                            Log.e(TAG, "foreground model sync failed", it)
+                        }
+                    }
+                }
+            }
+        )
     }
 
     private fun resumeMediaCreations() {

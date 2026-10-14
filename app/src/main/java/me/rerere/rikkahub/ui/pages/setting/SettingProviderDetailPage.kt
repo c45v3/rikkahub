@@ -87,6 +87,9 @@ import me.rerere.ai.provider.Modality
 import me.rerere.ai.provider.Model
 import me.rerere.ai.provider.ModelAbility
 import me.rerere.ai.provider.ModelType
+import me.rerere.ai.provider.ModelSyncMode
+import me.rerere.ai.provider.planModelSync
+import me.rerere.ai.provider.withModelSyncOptions
 import me.rerere.ai.provider.ProviderManager
 import me.rerere.ai.provider.ProviderSetting
 import me.rerere.ai.provider.TextGenerationParams
@@ -264,7 +267,16 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                     ProviderDetailTab.MODELS -> {
                         SettingProviderModelPage(
                             provider = provider,
-                            onEdit = onEdit
+                            onEdit = onEdit,
+                            referencedModelIds = buildSet {
+                                add(settings.chatModelId)
+                                add(settings.fastModelId)
+                                add(settings.imageGenerationModelId)
+                                add(settings.ocrModelId)
+                                add(settings.compressModelId)
+                                addAll(settings.favoriteModels)
+                                settings.assistants.mapNotNullTo(this) { it.chatModelId }
+                            }
                         )
                     }
 
@@ -423,11 +435,13 @@ private fun SettingProviderConfigPage(
 @Composable
 private fun SettingProviderModelPage(
     provider: ProviderSetting,
-    onEdit: (ProviderSetting) -> Unit
+    onEdit: (ProviderSetting) -> Unit,
+    referencedModelIds: Set<Uuid>,
 ) {
     ModelList(
         providerSetting = provider,
-        onUpdateProvider = onEdit
+        onUpdateProvider = onEdit,
+        referencedModelIds = referencedModelIds,
     )
 }
 
@@ -456,88 +470,177 @@ private fun SettingProviderAdvancedPage(
 @Composable
 private fun ModelList(
     providerSetting: ProviderSetting,
-    onUpdateProvider: (ProviderSetting) -> Unit
+    onUpdateProvider: (ProviderSetting) -> Unit,
+    referencedModelIds: Set<Uuid>,
 ) {
     val providerManager = koinInject<ProviderManager>()
-    val modelList by produceState(emptyList(), providerSetting) {
+    var refreshKey by remember { mutableStateOf(0) }
+    val connectionKey = when (providerSetting) {
+        is ProviderSetting.OpenAI -> "${providerSetting.baseUrl}:${providerSetting.apiKey}:${providerSetting.customHeaders}"
+        is ProviderSetting.Google -> "${providerSetting.baseUrl}:${providerSetting.apiKey}:${providerSetting.vertexAI}:${providerSetting.projectId}:${providerSetting.customHeaders}"
+        is ProviderSetting.Claude -> "${providerSetting.baseUrl}:${providerSetting.apiKey}:${providerSetting.customHeaders}"
+    }
+    var fetchError by remember(providerSetting.id, connectionKey, refreshKey) { mutableStateOf<String?>(null) }
+    val remoteModels by produceState<List<Model>?>(null, providerSetting.id, connectionKey, refreshKey) {
+        value = null
+        fetchError = null
         runCatching {
-            println("loading models...")
-            value = providerManager.getProviderByType(providerSetting)
+            providerManager.getProviderByType(providerSetting)
                 .listModels(providerSetting)
                 .sortedBy { it.modelId }
-                .toList()
-        }.onFailure {
-            it.printStackTrace()
+                .distinctBy { it.modelId }
+        }.onSuccess { value = it }
+            .onFailure { fetchError = it.message ?: it.javaClass.simpleName }
+    }
+    val options = providerSetting.modelSyncOptions
+    val plan = remember(providerSetting.models, remoteModels, options.mode, referencedModelIds) {
+        remoteModels?.takeIf { it.isNotEmpty() }?.let {
+            planModelSync(providerSetting.models, it, options.mode, referencedModelIds)
         }
     }
+    var showPreview by remember { mutableStateOf(false) }
     var expanded by rememberSaveable { mutableStateOf(true) }
     val lazyListState = rememberLazyListState()
     val reorderableLazyListState = rememberReorderableLazyListState(lazyListState) { from, to ->
         onUpdateProvider(providerSetting.moveMove(from.index, to.index))
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        if (providerSetting.models.isEmpty()) {
-            ExtensionEmptyState(
-                message = stringResource(R.string.setting_provider_page_no_models),
-                description = stringResource(R.string.setting_provider_page_add_models_hint),
-                icon = HugeIcons.Package01,
-            )
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .floatingToolbarVerticalNestedScroll(
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.model_sync_title), style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(
+                    ModelSyncMode.OFF to R.string.model_sync_off,
+                    ModelSyncMode.ADD_ONLY to R.string.model_sync_add,
+                    ModelSyncMode.MIRROR to R.string.model_sync_mirror,
+                ).forEach { (mode, label) ->
+                    TextButton(onClick = {
+                        onUpdateProvider(providerSetting.withModelSyncOptions(
+                            options.copy(mode = mode, initialized = false)
+                        ))
+                    }) {
+                        Text(stringResource(label),
+                            color = if (options.mode == mode) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.model_sync_automatic))
+                Switch(
+                    checked = options.automatic,
+                    onCheckedChange = {
+                        onUpdateProvider(providerSetting.withModelSyncOptions(options.copy(automatic = it)))
+                    },
+                    enabled = options.mode != ModelSyncMode.OFF,
+                )
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = { showPreview = true },
+                    enabled = plan != null && options.mode != ModelSyncMode.OFF) {
+                    Text(stringResource(R.string.model_sync_preview))
+                }
+                TextButton(onClick = { refreshKey++ }) { Text(stringResource(R.string.model_sync_refresh)) }
+                if (plan != null) {
+                    Text("+${plan.added.size} / -${plan.removed.size}",
+                        style = MaterialTheme.typography.labelMedium)
+                }
+            }
+            if (fetchError != null) {
+                Text(stringResource(R.string.model_sync_failed, fetchError ?: ""),
+                    color = MaterialTheme.colorScheme.error)
+            } else if (remoteModels?.isEmpty() == true) {
+                Text(stringResource(R.string.model_sync_empty_warning),
+                    color = MaterialTheme.colorScheme.error)
+            }
+        }
+
+        Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
+            if (providerSetting.models.isEmpty()) {
+                ExtensionEmptyState(
+                    message = stringResource(R.string.setting_provider_page_no_models),
+                    description = stringResource(R.string.setting_provider_page_add_models_hint),
+                    icon = HugeIcons.Package01,
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().floatingToolbarVerticalNestedScroll(
                         expanded = expanded,
                         onExpand = { expanded = true },
                         onCollapse = { expanded = false },
                     ),
-                contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 128.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                state = lazyListState
-            ) {
-                items(providerSetting.models, key = { it.id }) { item ->
-                    ReorderableItem(
-                        state = reorderableLazyListState,
-                        key = item.id
-                    ) { isDragging ->
-                        ModelCard(
-                            model = item,
-                            onDelete = {
-                                onUpdateProvider(providerSetting.delModel(item))
-                            },
-                            onEdit = { editedModel ->
-                                onUpdateProvider(providerSetting.editModel(editedModel))
-                            },
-                            parentProvider = providerSetting,
-                            modifier = longPressReorder(isDragging),
-                        )
+                    contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 128.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    state = lazyListState,
+                ) {
+                    items(providerSetting.models, key = { it.id }) { item ->
+                        ReorderableItem(state = reorderableLazyListState, key = item.id) { isDragging ->
+                            ModelCard(
+                                model = item,
+                                onDelete = { onUpdateProvider(providerSetting.delModel(item)) },
+                                onEdit = { onUpdateProvider(providerSetting.editModel(it)) },
+                                parentProvider = providerSetting,
+                                modifier = longPressReorder(isDragging),
+                            )
+                        }
                     }
                 }
             }
-        }
-        HorizontalFloatingToolbar(
-            expanded = expanded,
-            colors = CustomColors.floatingToolbarColors,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .offset(y = -ScreenOffset),
-        ) {
-            AddModelButton(
-                models = modelList,
-                selectedModels = providerSetting.models,
-                onAddModel = {
-                    onUpdateProvider(providerSetting.addModel(it))
-                },
-                onRemoveModel = {
-                    onUpdateProvider(providerSetting.delModel(it))
-                },
+            HorizontalFloatingToolbar(
                 expanded = expanded,
-                parentProvider = providerSetting,
-                onUpdateProvider = onUpdateProvider
-            )
+                colors = CustomColors.floatingToolbarColors,
+                modifier = Modifier.align(Alignment.BottomCenter).offset(y = -ScreenOffset),
+            ) {
+                AddModelButton(
+                    models = remoteModels.orEmpty(),
+                    selectedModels = providerSetting.models,
+                    onAddModel = { onUpdateProvider(providerSetting.addModel(it)) },
+                    onRemoveModel = { onUpdateProvider(providerSetting.delModel(it)) },
+                    expanded = expanded,
+                    parentProvider = providerSetting,
+                    onUpdateProvider = onUpdateProvider,
+                )
+            }
         }
+    }
+
+    if (showPreview) {
+        AlertDialog(
+            onDismissRequest = { showPreview = false },
+            title = { Text(stringResource(R.string.model_sync_preview)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.model_sync_counts,
+                        plan?.added?.size ?: 0, plan?.removed?.size ?: 0,
+                        plan?.protectedMissing?.size ?: 0))
+                    plan?.added?.forEach { Text("+ ${it.modelId}") }
+                    plan?.removed?.forEach { Text("- ${it.modelId}") }
+                    plan?.protectedMissing?.forEach { Text("• ${it.modelId} (protected)") }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    // Always use the current provider snapshot from the latest composition.
+                    plan?.let {
+                        onUpdateProvider(providerSetting.copyProvider(models = it.models)
+                            .withModelSyncOptions(options.copy(initialized = true)))
+                    }
+                    showPreview = false
+                }, enabled = plan != null) {
+                    Text(stringResource(R.string.confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPreview = false }) {
+                    Text(stringResource(R.string.cancel))
+                }
+            },
+        )
     }
 }
 
@@ -615,6 +718,20 @@ private fun ModelSettingsForm(
                                 }
                             }
                         )
+
+                        if (isEdit) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(stringResource(R.string.model_sync_protect))
+                                Switch(
+                                    checked = model.keepOnSync,
+                                    onCheckedChange = { onModelChange(model.copy(keepOnSync = it)) },
+                                )
+                            }
+                        }
 
                         ModelTypeSelector(
                             selectedType = model.type,

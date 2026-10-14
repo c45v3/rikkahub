@@ -1597,4 +1597,15 @@
   <string name="translator_page_clear_history">Clear</string>
   <string name="translator_page_clear_history_title">Clear translation history</string>
   <string name="translator_page_clear_history_message">All translation records will be deleted. This cannot be undone.</string>
+  <string name="model_sync_title">Model synchronization</string>
+  <string name="model_sync_off">Off</string>
+  <string name="model_sync_add">Add only</string>
+  <string name="model_sync_mirror">Mirror upstream</string>
+  <string name="model_sync_automatic">Auto-sync when app opens</string>
+  <string name="model_sync_preview">Preview &amp; apply</string>
+  <string name="model_sync_refresh">Refresh upstream</string>
+  <string name="model_sync_failed">Could not load models: %1$s</string>
+  <string name="model_sync_empty_warning">Upstream returned no models; synchronization is blocked.</string>
+  <string name="model_sync_counts">Add: %1$d, remove: %2$d, protected: %3$d</string>
+  <string name="model_sync_protect">Keep if removed upstream</string>
 </resources>

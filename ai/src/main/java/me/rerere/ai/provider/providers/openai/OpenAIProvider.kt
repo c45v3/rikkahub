@@ -75,7 +75,7 @@ class OpenAIProvider(
 
             val bodyStr = response.body?.string() ?: ""
             val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
-            val data = bodyJson["data"]?.jsonArray ?: return@withContext emptyList()
+            val data = bodyJson["data"]?.jsonArray ?: error("Missing models data array")
 
             data.mapNotNull { modelJson ->
                 val modelObj = modelJson.jsonObject

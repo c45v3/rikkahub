@@ -23,11 +23,27 @@ enum class ClaudePromptCacheTtl(val apiValue: String?) {
 }
 
 @Serializable
+enum class ModelSyncMode {
+    OFF,
+    ADD_ONLY,
+    MIRROR,
+}
+
+@Serializable
+data class ModelSyncOptions(
+    val mode: ModelSyncMode = ModelSyncMode.OFF,
+    val automatic: Boolean = false,
+    // The first synchronization must be reviewed and applied manually.
+    val initialized: Boolean = false,
+)
+
+@Serializable
 sealed class ProviderSetting {
     abstract val id: Uuid
     abstract val enabled: Boolean
     abstract val name: String
     abstract val models: List<Model>
+    abstract val modelSyncOptions: ModelSyncOptions
     abstract val balanceOption: BalanceOption
     abstract val customHeaders: List<CustomHeader>
 
@@ -58,6 +74,7 @@ sealed class ProviderSetting {
         override var enabled: Boolean = true,
         override var name: String = "OpenAI",
         override var models: List<Model> = emptyList(),
+        override val modelSyncOptions: ModelSyncOptions = ModelSyncOptions(),
         override val balanceOption: BalanceOption = BalanceOption(),
         override val customHeaders: List<CustomHeader> = emptyList(),
         @Transient override val builtIn: Boolean = false,
@@ -124,6 +141,7 @@ sealed class ProviderSetting {
         override var enabled: Boolean = true,
         override var name: String = "Google",
         override var models: List<Model> = emptyList(),
+        override val modelSyncOptions: ModelSyncOptions = ModelSyncOptions(),
         override val balanceOption: BalanceOption = BalanceOption(),
         override val customHeaders: List<CustomHeader> = emptyList(),
         @Transient override val builtIn: Boolean = false,
@@ -193,6 +211,7 @@ sealed class ProviderSetting {
         override var enabled: Boolean = true,
         override var name: String = "Claude",
         override var models: List<Model> = emptyList(),
+        override val modelSyncOptions: ModelSyncOptions = ModelSyncOptions(),
         override val balanceOption: BalanceOption = BalanceOption(),
         override val customHeaders: List<CustomHeader> = emptyList(),
         @Transient override val builtIn: Boolean = false,
@@ -259,4 +278,11 @@ sealed class ProviderSetting {
             )
         }
     }
+}
+
+/** Update synchronization settings without modifying the provider's other configuration. */
+fun ProviderSetting.withModelSyncOptions(options: ModelSyncOptions): ProviderSetting = when (this) {
+    is ProviderSetting.OpenAI -> copy(modelSyncOptions = options)
+    is ProviderSetting.Google -> copy(modelSyncOptions = options)
+    is ProviderSetting.Claude -> copy(modelSyncOptions = options)
 }
