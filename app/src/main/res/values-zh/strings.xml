@@ -1603,4 +1603,15 @@ mDNS 地址：使用 .local 主机名，同一网络中的其他设备可通过�
   <string name="setting_display_page_enable_quote_highlight_desc">使用主题色为引号内的文本着色，让角色对话更加醒目</string>
   <string name="workspace_detail_copy_path">复制路径</string>
   <string name="workspace_detail_path_copied">路径已复制</string>
+  <string name="model_sync_title">模型同步</string>
+  <string name="model_sync_off">关闭</string>
+  <string name="model_sync_add">仅新增</string>
+  <string name="model_sync_mirror">镜像上游</string>
+  <string name="model_sync_automatic">进入应用时自动同步</string>
+  <string name="model_sync_preview">预览并应用</string>
+  <string name="model_sync_refresh">刷新上游</string>
+  <string name="model_sync_failed">获取模型失败：%1$s</string>
+  <string name="model_sync_empty_warning">上游返回空模型列表，已阻止同步。</string>
+  <string name="model_sync_counts">新增 %1$d 个，删除 %2$d 个，保护 %3$d 个</string>
+  <string name="model_sync_protect">上游移除时仍保留此模型</string>
 </resources>

@@ -68,6 +68,7 @@ import me.rerere.ai.util.parseErrorDetail
 import me.rerere.ai.util.stringSafe
 import me.rerere.common.http.await
 import me.rerere.common.http.jsonPrimitiveOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -246,33 +247,37 @@ class ClaudeProvider(private val client: OkHttpClient, context: Context? = null)
 
     override suspend fun listModels(providerSetting: ProviderSetting.Claude): List<Model> =
         withContext(Dispatchers.IO) {
-            val request = Request.Builder()
-                .url("${providerSetting.baseUrl}/models")
-                .headers(providerSetting.mergeCustomHeaders())
-                .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
-                .addHeader("anthropic-version", ANTHROPIC_VERSION)
-                .get()
-                .build()
-
-            val response = client.newCall(request).execute()
-            if (!response.isSuccessful) {
-                error("Failed to get models: ${response.code} ${response.body?.string()}")
-            }
-
-            val bodyStr = response.body?.string() ?: ""
-            val bodyJson = json.parseToJsonElement(bodyStr).jsonObject
-            val data = bodyJson["data"]?.jsonArray ?: return@withContext emptyList()
-
-            data.mapNotNull { modelJson ->
-                val modelObj = modelJson.jsonObject
-                val id = modelObj["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
-                val displayName = modelObj["display_name"]?.jsonPrimitive?.contentOrNull ?: id
-
-                Model(
-                    modelId = id,
-                    displayName = displayName,
-                )
-            }
+            val result = mutableListOf<Model>()
+            var afterId: String? = null
+            val seen = mutableSetOf<String>()
+            do {
+                val url = "${providerSetting.baseUrl}/models".toHttpUrl().newBuilder()
+                    .addQueryParameter("limit", "100")
+                    .apply { afterId?.let { addQueryParameter("after_id", it) } }
+                    .build()
+                val request = Request.Builder()
+                    .url(url)
+                    .headers(providerSetting.mergeCustomHeaders())
+                    .addHeader("x-api-key", keyRoulette.next(providerSetting.apiKey, providerSetting.id.toString()))
+                    .addHeader("anthropic-version", ANTHROPIC_VERSION)
+                    .get().build()
+                val response = client.newCall(request).await()
+                if (!response.isSuccessful) error("Failed to get models: ${response.code}")
+                val body = response.body?.string() ?: error("Empty model response")
+                val obj = json.parseToJsonElement(body).jsonObject
+                val data = obj["data"]?.jsonArray ?: error("Missing models array")
+                result += data.mapNotNull { entry ->
+                    val model = entry.jsonObject
+                    val id = model["id"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
+                    Model(modelId = id, displayName = model["display_name"]?.jsonPrimitive?.contentOrNull ?: id)
+                }
+                val hasMore = obj["has_more"]?.jsonPrimitive?.contentOrNull == "true"
+                afterId = if (hasMore) obj["last_id"]?.jsonPrimitive?.contentOrNull else null
+                if (hasMore && (afterId.isNullOrBlank() || !seen.add(afterId!!))) {
+                    error("Invalid model pagination cursor")
+                }
+            } while (afterId != null)
+            result.distinctBy { it.modelId }
         }
 
     override suspend fun generateImage(

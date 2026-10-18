@@ -129,42 +129,49 @@ class GoogleProvider(private val client: OkHttpClient, context: Context? = null)
 
     override suspend fun listModels(providerSetting: ProviderSetting.Google): List<Model> =
         withContext(Dispatchers.IO) {
-            val url = buildUrl(providerSetting = providerSetting, path = "models?pageSize=100")
-            val request = transformRequest(
-                providerSetting = providerSetting,
-                request = Request.Builder()
-                    .url(url)
-                    .headers(providerSetting.mergeCustomHeaders())
-                    .get()
+            val result = mutableListOf<Model>()
+            var pageToken: String? = null
+            val visited = mutableSetOf<String>()
+            do {
+                val url = buildUrl(providerSetting, "models").newBuilder()
+                    .addQueryParameter("pageSize", "100")
+                    .apply { pageToken?.let { addQueryParameter("pageToken", it) } }
                     .build()
-            )
-            val response = client.newCall(request).await()
-            if (response.isSuccessful) {
-                val body = response.body?.string() ?: error("empty body")
-                Log.d(TAG, "listModels: $body")
-                val bodyObject = json.parseToJsonElement(body).jsonObject
-                val models = bodyObject["models"]?.jsonArray ?: return@withContext emptyList()
-
-                models.mapNotNull {
+                val request = transformRequest(
+                    providerSetting = providerSetting,
+                    request = Request.Builder()
+                        .url(url)
+                        .headers(providerSetting.mergeCustomHeaders())
+                        .get()
+                        .build()
+                )
+                val response = client.newCall(request).await()
+                if (!response.isSuccessful) {
+                    error("Failed to get models: ${response.code}")
+                }
+                val body = response.body?.string() ?: error("Empty model response")
+                val obj = json.parseToJsonElement(body).jsonObject
+                val models = obj["models"]?.jsonArray ?: error("Missing models array")
+                result += models.mapNotNull {
                     val modelObject = it.jsonObject
-
-                    // 忽略非chat/embedding模型
-                    val supportedGenerationMethods =
-                        modelObject["supportedGenerationMethods"]!!.jsonArray
-                            .map { method -> method.jsonPrimitive.content }
-                    if ("generateContent" !in supportedGenerationMethods && "embedContent" !in supportedGenerationMethods) {
+                    val methods = modelObject["supportedGenerationMethods"]?.jsonArray
+                        ?.map { method -> method.jsonPrimitive.content } ?: emptyList()
+                    if ("generateContent" !in methods && "embedContent" !in methods) {
                         return@mapNotNull null
                     }
-
+                    val name = modelObject["name"]?.jsonPrimitive?.content ?: return@mapNotNull null
                     Model(
-                        modelId = modelObject["name"]!!.jsonPrimitive.content.substringAfter("/"),
-                        displayName = modelObject["displayName"]!!.jsonPrimitive.content,
-                        type = if ("generateContent" in supportedGenerationMethods) ModelType.CHAT else ModelType.EMBEDDING,
+                        modelId = name.substringAfter("/"),
+                        displayName = modelObject["displayName"]?.jsonPrimitive?.content ?: name,
+                        type = if ("generateContent" in methods) ModelType.CHAT else ModelType.EMBEDDING,
                     )
                 }
-            } else {
-                emptyList()
-            }
+                pageToken = obj["nextPageToken"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
+                if (pageToken != null && !visited.add(pageToken!!)) {
+                    error("Repeated model page token")
+                }
+            } while (pageToken != null)
+            result.distinctBy { it.modelId }
         }
 
     override suspend fun generateText(

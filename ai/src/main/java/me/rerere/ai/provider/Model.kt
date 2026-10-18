@@ -19,6 +19,8 @@ data class Model(
     val providerOverwrite: ProviderSetting? = null,
     // 上下文窗口大小(token)
     val contextLength: Int = 1_000_000,
+    /** Keep this model when it is missing from the upstream list. */
+    val keepOnSync: Boolean = false,
 )
 
 @Serializable
