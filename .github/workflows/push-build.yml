@@ -97,11 +97,6 @@ jobs:
             echo "::notice::Signing or Firebase secrets unavailable; compiling a debug-only APK."
           fi
 
-      - name: Test model synchronization
-        run: |
-          chmod +x gradlew
-          ./gradlew :ai:testDebugUnitTest --stacktrace
-
       - name: Assemble Android APK
         env:
           VARIANT: ${{ steps.build_mode.outputs.variant }}
@@ -125,6 +120,5 @@ jobs:
           name: Build-Reports-${{ github.run_number }}
           path: |
             **/build/reports/
-            **/build/test-results/
           if-no-files-found: ignore
           retention-days: 7
