@@ -279,7 +279,6 @@ fun SettingProviderDetailPage(id: Uuid, vm: SettingVM = koinViewModel()) {
                                 add(settings.fastModelId)
                                 add(settings.imageGenerationModelId)
                                 add(settings.ocrModelId)
-                                add(settings.compressModelId)
                                 addAll(settings.favoriteModels)
                                 settings.assistants.mapNotNullTo(this) { it.chatModelId }
                             }
@@ -1675,6 +1674,7 @@ private fun ProviderOverrideSettings(
                     ) {
                         ProviderConfigure(
                             provider = internalProvider,
+                            allowTypeSwitch = true,
                             onEdit = { internalProvider = it }
                         )
                     }

@@ -95,7 +95,6 @@ private fun Settings.referencedModelIds(): Set<Uuid> = buildSet {
     add(fastModelId)
     add(imageGenerationModelId)
     add(ocrModelId)
-    add(compressModelId)
     addAll(favoriteModels)
     assistants.mapNotNullTo(this) { it.chatModelId }
 }

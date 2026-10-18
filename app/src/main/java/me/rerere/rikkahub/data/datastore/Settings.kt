@@ -8,7 +8,6 @@ import me.rerere.ai.provider.ProviderSetting
 import me.rerere.asr.ASRProviderSetting
 import me.rerere.mediagen.provider.MediaGenerationProviderSetting
 import me.rerere.rikkahub.data.ai.mcp.McpServerConfig
-import me.rerere.rikkahub.data.ai.prompts.DEFAULT_COMPRESS_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_OCR_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_SUGGESTION_PROMPT
 import me.rerere.rikkahub.data.ai.prompts.DEFAULT_TITLE_PROMPT
@@ -53,8 +52,6 @@ data class Settings(
     val suggestionPrompt: String = DEFAULT_SUGGESTION_PROMPT,
     val ocrModelId: Uuid = Uuid.random(),
     val ocrPrompt: String = DEFAULT_OCR_PROMPT,
-    val compressModelId: Uuid = Uuid.random(),
-    val compressPrompt: String = DEFAULT_COMPRESS_PROMPT,
     val assistantId: Uuid = DEFAULT_ASSISTANT_ID,
     val providers: List<ProviderSetting> = DEFAULT_PROVIDERS,
     val assistants: List<Assistant> = DEFAULT_ASSISTANTS,
@@ -134,7 +131,6 @@ enum class ConversationSortOrder {
 data class DisplaySetting(
     val userAvatar: Avatar = Avatar.Dummy,
     val userNickname: String = "",
-    val useAppIconStyleLoadingIndicator: Boolean = true,
     val showUserAvatar: Boolean = true,
     val showAssistantBubble: Boolean = false,
     val bubbleOpacity: Float = 1.0f,
