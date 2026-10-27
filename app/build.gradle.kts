@@ -162,9 +162,16 @@ tasks.register("buildAll") {
     description = "Build GitHub APK and Play AAB"
 }
 
-val syncApkOutputs = tasks.register<Copy>("syncApkOutputs") {
-    from(layout.buildDirectory.dir("outputs/apk/github"))
-    into(layout.buildDirectory.dir("outputs/apk"))
+val syncApkOutputs = tasks.register("syncApkOutputs") {
+    val rootApkDir = layout.buildDirectory.dir("outputs/apk")
+    val githubApkDir = layout.buildDirectory.dir("outputs/apk/github")
+    doLast {
+        val src = githubApkDir.get().asFile
+        val dest = rootApkDir.get().asFile
+        if (src.isDirectory) {
+            src.copyRecursively(dest, overwrite = true)
+        }
+    }
 }
 
 tasks.matching { it.name.startsWith("assemble") }.configureEach {
