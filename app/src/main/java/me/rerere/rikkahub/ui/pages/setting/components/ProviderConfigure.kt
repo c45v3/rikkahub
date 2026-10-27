@@ -82,7 +82,7 @@ import kotlin.time.toJavaInstant
 fun ProviderConfigure(
     provider: ProviderSetting,
     modifier: Modifier = Modifier,
-    allowTypeSwitch: Boolean = false,
+    allowTypeSwitch: Boolean = true,
     onEdit: (provider: ProviderSetting) -> Unit
 ) {
     Column(
