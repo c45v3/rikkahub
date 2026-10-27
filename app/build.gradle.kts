@@ -162,6 +162,15 @@ tasks.register("buildAll") {
     description = "Build GitHub APK and Play AAB"
 }
 
+val syncApkOutputs = tasks.register<Copy>("syncApkOutputs") {
+    from(layout.buildDirectory.dir("outputs/apk/github"))
+    into(layout.buildDirectory.dir("outputs/apk"))
+}
+
+tasks.matching { it.name.startsWith("assemble") }.configureEach {
+    finalizedBy(syncApkOutputs)
+}
+
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
 }
